@@ -1,145 +1,109 @@
-"""ElectricityManager: CSV storage, Pandas analysis and charts."""
+"""Month-by-month tests for manager.py (run: python test_manager.py).
+Works on a temporary copy of readings.csv, so your real CSV is never changed."""
 import os
-import numpy as np
+import shutil
+import tempfile
+
+import matplotlib
+matplotlib.use("Agg")            # no chart windows while testing
 import pandas as pd
-import matplotlib.pyplot as plt
 
-from billing import calculate_bill
-from generate_data import MONTHS, generate
+from manager import ElectricityManager
+from generate_data import MONTHS
 
-COLUMNS = ["house_id", "owner", "month", "units"]
+failed = []
 
 
-class ElectricityManager:
-    def __init__(self, csv_path="readings.csv", chart_dir="charts"):
-        self.csv_path = csv_path
-        self.chart_dir = chart_dir
-        os.makedirs(chart_dir, exist_ok=True)
-        self.df = self._load()
+def check(name, condition):
+    print(f"   {'PASS' if condition else 'FAIL'}  {name}")
+    if not condition:
+        failed.append(name)
 
-    # ---------- file handling ----------
-    def _load(self):
-        try:
-            df = pd.read_csv(self.csv_path)
-        except FileNotFoundError:
-            print("readings.csv not found - generating sample data...")
-            generate(self.csv_path)
-            df = pd.read_csv(self.csv_path)
-        except pd.errors.EmptyDataError:
-            df = pd.DataFrame(columns=COLUMNS)
-        # cleaning
-        df = df.dropna().drop_duplicates(subset=["house_id", "month"], keep="last")
-        df["units"] = pd.to_numeric(df["units"], errors="coerce")
-        df = df.dropna(subset=["units"])
-        df["month"] = pd.Categorical(df["month"], categories=MONTHS, ordered=True)
-        return df.reset_index(drop=True)
 
-    def save(self):
-        out = self.df.copy()
-        out["month"] = out["month"].astype(str)
-        out.to_csv(self.csv_path, index=False)
+def expected_total(u):
+    """Independent bill formula (does NOT use billing.py)."""
+    energy = (min(u, 100) * 3 + max(0, min(u, 200) - 100) * 5
+              + max(0, min(u, 300) - 200) * 7 + max(0, u - 300) * 9)
+    return round(energy + 50 + round(energy * 0.05, 2), 2)
 
-    # ---------- add / lookup ----------
-    def add_reading(self, house_id, owner, month, units):
-        house_id, month = house_id.strip().upper(), month.strip().capitalize()[:3]
-        if month not in MONTHS:
-            raise ValueError(f"Month must be one of {', '.join(MONTHS)}")
-        if units < 0:
-            raise ValueError("Units cannot be negative.")
-        exists = ((self.df["house_id"] == house_id) & (self.df["month"] == month)).any()
-        if exists:
-            raise ValueError(f"Reading for {house_id} / {month} already exists.")
-        new = pd.DataFrame([{"house_id": house_id, "owner": owner.strip().title(),
-                             "month": month, "units": int(units)}])
-        new["month"] = pd.Categorical(new["month"], categories=MONTHS, ordered=True)
-        self.df = pd.concat([self.df, new], ignore_index=True)
-        self.save()
 
-    def house_ids(self):
-        return sorted(self.df["house_id"].unique())
+tmp = tempfile.mkdtemp()
+csv = os.path.join(tmp, "readings.csv")
+shutil.copy("readings.csv", csv)
+raw = pd.read_csv("readings.csv")
+mgr = ElectricityManager(csv_path=csv, chart_dir=os.path.join(tmp, "charts"))
 
-    def get_units(self, house_id, month):
-        row = self.df[(self.df["house_id"] == house_id.upper()) &
-                      (self.df["month"] == month.capitalize()[:3])]
-        if row.empty:
-            raise KeyError("No reading found for that house and month.")
-        return int(row["units"].iloc[0])
+for month in MONTHS:
+    print(f"\n=== {month} ===")
+    sub = raw[raw["month"] == month]
 
-    def bill_for(self, house_id, month):
-        return calculate_bill(self.get_units(house_id, month))
+    # 1. data loaded for this month
+    check("20 readings loaded", len(mgr.df[mgr.df["month"] == month]) == 20)
 
-    # ---------- analysis (Pandas / NumPy) ----------
-    def monthly_trend(self):
-        g = self.df.groupby("month", observed=True)["units"]
-        return pd.DataFrame({"total": g.sum(), "average": g.mean().round(1)})
+    # 2. monthly_trend total and average
+    t = mgr.monthly_trend()
+    check("trend total matches CSV", int(t.loc[month, "total"]) == int(sub["units"].sum()))
+    check("trend average matches CSV", abs(t.loc[month, "average"] - round(sub["units"].mean(), 1)) < 0.01)
 
-    def house_totals(self):
-        return (self.df.groupby(["house_id", "owner"])["units"].sum()
-                .sort_values(ascending=False).reset_index())
+    # 3. bill for every house (independent formula vs billing.py via manager)
+    ok = all(abs(mgr.bill_for(r.house_id, month)["total"] - expected_total(int(r.units))) < 0.01
+             for r in sub.itertuples())
+    check("bill correct for all 20 houses", ok)
 
-    def top_houses(self, n=5):
-        return self.house_totals().head(n)
+    # 4. month text is case-insensitive / accepts full name (uses first 3 letters)
+    check("lookup works with lower-case and full month name",
+          mgr.get_units("h01", month.lower()) == mgr.get_units("H01", month) ==
+          mgr.get_units("H01", {"Jan": "January", "Feb": "February", "Mar": "March", "Apr": "April",
+                                "May": "May", "Jun": "June", "Jul": "July", "Aug": "August",
+                                "Sep": "September", "Oct": "October", "Nov": "November",
+                                "Dec": "December"}[month]))
 
-    def all_bills(self):
-        d = self.df.copy()
-        d["bill"] = d["units"].apply(lambda u: calculate_bill(u)["total"])
-        return d
+    # 5. add a new reading in this month, then reject the duplicate
+    mgr.add_reading("H21", "test", month, 250)
+    check("add H21 -> bill Rs1257.50", mgr.bill_for("H21", month)["total"] == 1257.50)
+    check("trend now has 21 readings in month", int(mgr.df[mgr.df["month"] == month].shape[0]) == 21)
+    try:
+        mgr.add_reading("H21", "test", month, 250)
+        check("duplicate reading rejected", False)
+    except ValueError:
+        check("duplicate reading rejected", True)
+    check("new reading saved to CSV file",
+          ((pd.read_csv(csv)["house_id"] == "H21") & (pd.read_csv(csv)["month"] == month)).any())
 
-    def insights(self):
-        trend = self.monthly_trend()
-        totals = self.house_totals()
-        bills = self.all_bills()
-        peak, low = trend["total"].idxmax(), trend["total"].idxmin()
-        summer = trend.loc[["Apr", "May", "Jun", "Jul"], "average"].mean()
-        winter = trend.loc[["Dec", "Jan", "Feb"], "average"].mean()
-        top5_share = totals["units"].head(5).sum() / totals["units"].sum() * 100
-        slab4 = (self.df["units"] > 300).mean() * 100
-        return [
-            f"Peak month is {peak} ({int(trend.loc[peak, 'total'])} units); "
-            f"lowest is {low} ({int(trend.loc[low, 'total'])} units).",
-            f"Summer (Apr-Jul) average per house is {summer:.0f} units vs "
-            f"{winter:.0f} in winter (Dec-Feb): {(summer / winter - 1) * 100:.0f}% higher.",
-            f"Top 5 houses use {top5_share:.1f}% of all electricity; "
-            f"highest is {totals.iloc[0]['house_id']} ({totals.iloc[0]['owner']}) "
-            f"with {int(totals.iloc[0]['units'])} units/year.",
-            f"{slab4:.1f}% of house-months fall in the costliest slab (>300 units).",
-            f"Average monthly bill is Rs{np.mean(bills['bill']):.0f}; "
-            f"highest single bill is Rs{bills['bill'].max():.0f}.",
-        ]
+    # 6. insights still work when the file holds ONLY this month (the original crash case)
+    only_csv = os.path.join(tmp, f"only_{month}.csv")
+    raw[raw["month"] == month].to_csv(only_csv, index=False)
+    only = ElectricityManager(csv_path=only_csv, chart_dir=os.path.join(tmp, "charts"))
+    try:
+        lines = only.insights()
+        check("insights() runs on single-month data (5 lines)", len(lines) == 5)
+    except Exception as e:
+        check(f"insights() runs on single-month data ({type(e).__name__}: {e})", False)
 
-    # ---------- charts ----------
-    def line_chart(self, house_id=None, show=True):
-        fig, ax = plt.subplots(figsize=(9, 5))
-        if house_id:
-            d = self.df[self.df["house_id"] == house_id.upper()].sort_values("month")
-            if d.empty:
-                plt.close(fig)
-                raise KeyError("No data for that house.")
-            ax.plot(d["month"].astype(str), d["units"], marker="o", color="tab:green")
-            ax.set_title(f"Monthly Consumption - {house_id.upper()}")
-            name = f"line_{house_id.upper()}.png"
-        else:
-            t = self.monthly_trend()
-            ax.plot(t.index.astype(str), t["average"], marker="o", color="tab:blue")
-            ax.set_title("Average Monthly Consumption per House")
-            name = "line_monthly_trend.png"
-        ax.set_xlabel("Month"); ax.set_ylabel("Units (kWh)"); ax.grid(alpha=.3)
-        return self._finish(fig, name, show)
+print("\n=== All months together ===")
+full = ElectricityManager(csv_path=csv, chart_dir=os.path.join(tmp, "charts"))
+full.df = full.df[full.df["house_id"] != "H21"].reset_index(drop=True)
+lines = full.insights()
+check("insights() gives 5 lines", len(lines) == 5)
+check("peak Jun, lowest Feb", lines[0].startswith("Peak month is Jun") and "lowest is Feb" in lines[0])
+check("summer 314 vs winter 187, 68%", "314" in lines[1] and "187" in lines[1] and "68%" in lines[1])
+check("top 5 = 32.7%, H19 Tiwari 4067", "32.7%" in lines[2] and "H19 (Tiwari)" in lines[2] and "4067" in lines[2])
+check("12 months in trend, Jan-Dec order", list(full.monthly_trend().index.astype(str)) == MONTHS)
+check("line chart (H01, 12 months) saved", os.path.exists(full.line_chart("H01", show=False)))
+check("line chart (all-house average) saved", os.path.exists(full.line_chart(None, show=False)))
+check("bar chart saved", os.path.exists(full.bar_chart(10, show=False)))
 
-    def bar_chart(self, n=10, show=True):
-        top = self.top_houses(n)
-        fig, ax = plt.subplots(figsize=(9, 5))
-        ax.bar(top["house_id"], top["units"], color="tab:orange")
-        for x, y in zip(top["house_id"], top["units"]):
-            ax.text(x, y, str(int(y)), ha="center", va="bottom", fontsize=8)
-        ax.set_title(f"Top {n} Highest-Consuming Houses (Yearly)")
-        ax.set_xlabel("House ID"); ax.set_ylabel("Total Units (kWh)")
-        return self._finish(fig, "bar_top_houses.png", show)
+print("\n=== Error handling ===")
+for label, call, exc in [
+    ("invalid month 'abc'", lambda: mgr.add_reading("H22", "x", "abc", 100), ValueError),
+    ("negative units", lambda: mgr.add_reading("H22", "x", "Jan", -5), ValueError),
+    ("unknown house H99", lambda: mgr.get_units("H99", "Jan"), KeyError),
+]:
+    try:
+        call()
+        check(label, False)
+    except exc:
+        check(label, True)
 
-    def _finish(self, fig, name, show):
-        path = os.path.join(self.chart_dir, name)
-        fig.tight_layout(); fig.savefig(path, dpi=120)
-        if show:
-            plt.show()
-        plt.close(fig)
-        return path
+shutil.rmtree(tmp)
+print("\n" + ("ALL TESTS PASSED" if not failed else f"{len(failed)} TEST(S) FAILED: {failed}"))
