@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Household Electricity Consumption &amp; Bill Calculator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+:root{--ink:#16233b;--mute:#5b6679;--bg:#e9edf3;--panel:#fff;--line:#cdd5e1;--amber:#e8a317;--s1:#f6d98a;--s2:#f0bb3c;--s3:#d98a14;--s4:#a8480f;--ok:#1f7a4d;--bad:#b3261e}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 "IBM Plex Sans",system-ui,sans-serif;font-variant-numeric:tabular-nums}
+header{background:var(--ink);color:#fff;padding:28px 20px 32px}
+.wrap{max-width:1040px;margin:0 auto}
+h1{margin:0 0 6px;font-size:clamp(1.5rem,4vw,2.3rem);line-height:1.15;font-weight:700}
+header p{margin:0;color:#b9c4d8;max-width:62ch}
+main{padding:20px}
+section{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:22px;margin:0 auto 18px;max-width:1040px}
+h2{margin:0 0 4px;font-size:1.25rem}
+.sub{margin:0 0 16px;color:var(--mute);font-size:.94rem}
+label{display:block;font-size:.85rem;font-weight:600;margin-bottom:4px}
+select,input[type=number],input[type=text]{width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:4px;font:inherit;background:#fff;color:var(--ink)}
+input[type=range]{width:100%;accent-color:var(--s3)}
+button{font:inherit;font-weight:600;padding:10px 16px;border:0;border-radius:4px;background:var(--ink);color:#fff;cursor:pointer}
+button.alt{background:#fff;color:var(--ink);border:1px solid var(--ink)}
+button:hover{opacity:.9}
+.hero{display:grid;grid-template-columns:minmax(240px,1fr) 1.4fr;gap:26px}
+.ctl{display:grid;gap:14px;align-content:start}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.bar{display:flex;height:34px;border-radius:4px;overflow:hidden;background:#eef1f6;margin:6px 0 14px}
+.bar i{display:block;height:100%;transition:width .25s}
+table{width:100%;border-collapse:collapse;font-size:.94rem}
+th,td{padding:7px 8px;text-align:right;border-bottom:1px solid var(--line)}
+th:first-child,td:first-child{text-align:left}
+th{font-weight:600;color:var(--mute);font-size:.84rem}
+.chip{display:inline-block;width:11px;height:11px;border-radius:2px;margin-right:7px;vertical-align:-1px}
+.total td{font-size:1.5rem;font-weight:700;border-bottom:0;padding-top:12px}
+.tools{display:flex;gap:12px;flex-wrap:wrap;align-items:end;margin-bottom:12px}
+.tools>div{min-width:170px}
+.cv{position:relative;height:320px}
+.two{display:grid;grid-template-columns:1.3fr 1fr;gap:22px}
+ol.ins{margin:0;padding-left:22px}ol.ins li{margin-bottom:9px;max-width:75ch}
+.form{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;align-items:end}
+#msg{margin:12px 0 0;font-weight:600}.ok{color:var(--ok)}.err{color:var(--bad)}
+footer{text-align:center;color:var(--mute);font-size:.88rem;padding:6px 20px 30px}
+@media(max-width:760px){.hero,.two{grid-template-columns:1fr}.form{grid-template-columns:1fr 1fr}.cv{height:260px}}
+@media(prefers-reduced-motion:reduce){.bar i{transition:none}}
+</style>
+</head>
+<body>
+<header><div class="wrap">
+<h1>Household Electricity Consumption &amp; Bill Calculator</h1>
+<p>Meter readings of 20 houses for 12 months, with slab-wise billing, consumption trends and automatic insights. Web version of the Python capstone project.</p>
+</div></header>
+<main>
+
+<section id="calc">
+<h2>Bill calculator</h2>
+<p class="sub">Pick a house and month to load its reading, or type any number of units. The bill updates as you change it.</p>
+<div class="hero">
+<div class="ctl">
+<div class="row2">
+<div><label for="house">House</label><select id="house"></select></div>
+<div><label for="month">Month</label><select id="month"></select></div>
+</div>
+<div><label for="units">Units consumed (kWh)</label><input id="units" type="number" min="0" step="1" value="250"></div>
+<input id="slider" type="range" min="0" max="700" step="1" value="250" aria-label="Units slider">
+<div id="who" class="sub" style="margin:0"></div>
+</div>
+<div>
+<div class="bar" id="bar" aria-hidden="true"></div>
+<table>
+<thead><tr><th>Slab</th><th>Units</th><th>Rate</th><th>Amount</th></tr></thead>
+<tbody id="slabs"></tbody>
+<tbody id="sum"></tbody>
+</table>
+</div>
+</div>
+</section>
+
+<section id="trend">
+<h2>Month-wise consumption</h2>
+<p class="sub">Units used each month, for one house or the average of all houses.</p>
+<div class="tools"><div><label for="trendHouse">Show</label><select id="trendHouse"></select></div></div>
+<div class="two">
+<div class="cv"><canvas id="lineChart" role="img" aria-label="Line chart of monthly consumption"></canvas></div>
+<table><thead><tr><th>Month</th><th>Total</th><th>Average</th></tr></thead><tbody id="trendRows"></tbody></table>
+</div>
+</section>
+
+<section id="top">
+<h2>Highest-consuming houses</h2>
+<p class="sub">Yearly units, highest first.</p>
+<div class="tools"><div><label for="topN">Houses to show</label><select id="topN"><option>5</option><option selected>10</option><option>20</option></select></div></div>
+<div class="cv"><canvas id="barChart" role="img" aria-label="Bar chart of top houses"></canvas></div>
+</section>
+
+<section id="insights">
+<h2>Key insights</h2>
+<p class="sub">Generated from the data, the same five findings as option 7 in the Python program.</p>
+<ol class="ins" id="insList"></ol>
+</section>
+
+<section id="add">
+<h2>Add a meter reading</h2>
+<p class="sub">New readings stay in this browser tab only. Download the CSV to keep them.</p>
+<div class="form">
+<div><label for="aId">House ID</label><input id="aId" type="text" placeholder="H21"></div>
+<div><label for="aOwner">Owner name</label><input id="aOwner" type="text" placeholder="Sharma"></div>
+<div><label for="aMonth">Month</label><select id="aMonth"></select></div>
+<div><label for="aUnits">Units</label><input id="aUnits" type="number" min="0" step="1"></div>
+</div>
+<p style="display:flex;gap:10px;flex-wrap:wrap;margin:14px 0 0"><button id="addBtn">Save reading</button><button class="alt" id="csvBtn">Download readings.csv</button></p>
+<p id="msg" role="status"></p>
+</section>
+</main>
+<footer>Tariff: Rs 3 / 5 / 7 / 9 per unit by slab, plus Rs 50 fixed charge and 5% duty on the energy charge.</footer>
+
+<script>
+const M=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const SLABS=[[100,3],[100,5],[100,7],[null,9]],FIXED=50,TAX=0.05,COL=["--s1","--s2","--s3","--s4"];
+const raw={"H01":["Sharma",[108,117,128,138,202,216,202,164,155,126,126,119]],"H02":["Verma",[233,216,233,304,337,437,393,374,305,284,251,245]],"H03":["Singh",[215,197,227,309,383,444,366,343,309,241,213,229]],"H04":["Gupta",[119,130,140,185,221,228,235,217,177,143,139,124]],"H05":["Yadav",[206,241,265,327,407,425,405,345,303,280,241,246]],"H06":["Khan",[133,130,144,176,206,216,219,194,179,161,127,123]],"H07":["Mehta",[223,240,264,338,405,428,432,353,302,253,258,245]],"H08":["Jain",[131,140,147,201,235,257,236,234,196,153,138,163]],"H09":["Kumar",[160,147,189,224,271,286,257,230,239,181,154,157]],"H10":["Patel",[244,225,290,348,424,445,432,397,356,262,251,232]],"H11":["Reddy",[119,115,128,173,195,252,220,195,181,133,143,131]],"H12":["Nair",[184,159,195,239,320,331,303,270,242,207,183,167]],"H13":["Joshi",[165,142,174,194,268,275,277,260,232,168,176,154]],"H14":["Bansal",[206,230,249,334,408,411,435,355,328,257,263,226]],"H15":["Malik",[178,198,219,260,328,365,317,282,274,221,187,176]],"H16":["Chopra",[107,97,125,133,159,204,166,155,150,130,102,104]],"H17":["Saxena",[279,255,266,316,407,443,462,383,367,314,275,254]],"H18":["Mishra",[233,229,259,280,343,447,377,343,315,269,255,223]],"H19":["Tiwari",[225,252,288,316,390,460,477,413,389,314,263,280]],"H20":["Arora",[219,224,291,354,388,458,434,424,356,283,251,254]]};
+const D={};for(const k in raw)D[k]={owner:raw[k][0],u:raw[k][1].slice()};
+const $=id=>document.getElementById(id),fmt=n=>n.toLocaleString("en-IN",{minimumFractionDigits:2,maximumFractionDigits:2}),int=n=>Math.round(n).toLocaleString("en-IN");
+const ids=()=>Object.keys(D).sort();
+
+function calcBill(units){
+  let rem=units,start=0,energy=0;const rows=[];
+  for(const [lim,rate] of SLABS){
+    if(rem<=0)break;
+    const used=lim===null?rem:Math.min(rem,lim),amt=used*rate;
+    rows.push({slab:`${start+1}-${start+used}`,units:used,rate,amt});
+    energy+=amt;rem-=used;start+=used;
+  }
+  const tax=Math.round(energy*TAX*100)/100;
+  return{rows,energy,fixed:FIXED,tax,total:Math.round((energy+FIXED+tax)*100)/100};
+}
+
+/* ---------- bill ---------- */
+function renderBill(){
+  const u=Math.max(0,parseInt($("units").value)||0),b=calcBill(u);
+  $("bar").innerHTML=b.rows.map((r,i)=>`<i style="width:${r.amt/b.energy*100}%;background:var(${COL[i]})" title="${r.slab}"></i>`).join("");
+  $("slabs").innerHTML=b.rows.length?b.rows.map((r,i)=>`<tr><td><span class="chip" style="background:var(${COL[i]})"></span>${r.slab}</td><td>${r.units}</td><td>Rs ${r.rate}</td><td>Rs ${fmt(r.amt)}</td></tr>`).join(""):`<tr><td colspan="4">No units consumed.</td></tr>`;
+  $("sum").innerHTML=`<tr><td colspan="3">Energy charge</td><td>Rs ${fmt(b.energy)}</td></tr><tr><td colspan="3">Fixed charge</td><td>Rs ${fmt(b.fixed)}</td></tr><tr><td colspan="3">Duty (5%)</td><td>Rs ${fmt(b.tax)}</td></tr><tr class="total"><td colspan="3">Total payable</td><td>Rs ${fmt(b.total)}</td></tr>`;
+}
+function loadReading(){
+  const h=D[$("house").value],m=M.indexOf($("month").value),v=h&&h.u[m];
+  $("who").textContent=v==null?`No reading stored for ${$("house").value} in ${$("month").value}.`:`${$("house").value}, ${h.owner}: ${v} units recorded in ${$("month").value}.`;
+  if(v!=null){$("units").value=v;$("slider").value=Math.min(v,700);}
+  renderBill();
+}
+
+/* ---------- analysis ---------- */
+function monthly(){
+  return M.map((m,i)=>{const v=ids().map(k=>D[k].u[i]).filter(x=>x!=null),t=v.reduce((a,b)=>a+b,0);
+    return{m,total:t,avg:v.length?Math.round(t/v.length*10)/10:0};});
+}
+function totals(){return ids().map(k=>({id:k,owner:D[k].owner,t:D[k].u.reduce((a,b)=>a+(b||0),0)})).sort((a,b)=>b.t-a.t);}
+function insights(){
+  const tr=monthly(),tt=totals(),all=[];
+  ids().forEach(k=>D[k].u.forEach(u=>{if(u!=null)all.push(u);}));
+  const peak=tr.reduce((a,b)=>b.total>a.total?b:a),low=tr.reduce((a,b)=>b.total<a.total?b:a);
+  const mean=n=>n.reduce((a,b)=>a+b,0)/n.length,pick=l=>tr.filter(x=>l.includes(x.m)).map(x=>x.avg);
+  const summer=mean(pick(["Apr","May","Jun","Jul"])),winter=mean(pick(["Dec","Jan","Feb"]));
+  const sum=all.reduce((a,b)=>a+b,0),top5=tt.slice(0,5).reduce((a,b)=>a+b.t,0)/sum*100;
+  const slab4=all.filter(x=>x>300).length/all.length*100,bills=all.map(u=>calcBill(u).total);
+  return[
+    `Peak month is ${peak.m} (${int(peak.total)} units); lowest is ${low.m} (${int(low.total)} units).`,
+    `Summer (Apr-Jul) average per house is ${summer.toFixed(0)} units vs ${winter.toFixed(0)} in winter (Dec-Feb): ${((summer/winter-1)*100).toFixed(0)}% higher.`,
+    `Top 5 houses use ${top5.toFixed(1)}% of all electricity; highest is ${tt[0].id} (${tt[0].owner}) with ${int(tt[0].t)} units/year.`,
+    `${slab4.toFixed(1)}% of house-months fall in the costliest slab (>300 units).`,
+    `Average monthly bill is Rs${int(mean(bills))}; highest single bill is Rs${int(Math.max(...bills))}.`];
+}
+
+/* ---------- charts ---------- */
+let lc,bc;
+function drawLine(){
+  const k=$("trendHouse").value,tr=monthly();
+  const data=k==="ALL"?tr.map(x=>x.avg):D[k].u,label=k==="ALL"?"Average per house":`${k} (${D[k].owner})`;
+  if(lc)lc.destroy();
+  lc=new Chart($("lineChart"),{type:"line",data:{labels:M,datasets:[{label,data,borderColor:"#d98a14",backgroundColor:"#d98a14",tension:.25,pointRadius:4,spanGaps:true}]},
+    options:{maintainAspectRatio:false,plugins:{legend:{display:true}},scales:{y:{title:{display:true,text:"Units (kWh)"},beginAtZero:true},x:{title:{display:true,text:"Month"}}}}});
+  $("trendRows").innerHTML=tr.map(x=>`<tr><td>${x.m}</td><td>${int(x.total)}</td><td>${x.avg.toFixed(1)}</td></tr>`).join("");
+}
+function drawBar(){
+  const n=+$("topN").value,t=totals().slice(0,n);
+  if(bc)bc.destroy();
+  bc=new Chart($("barChart"),{type:"bar",data:{labels:t.map(x=>x.id),datasets:[{label:"Yearly units",data:t.map(x=>x.t),backgroundColor:"#16233b"}]},
+    options:{maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{afterLabel:c=>t[c.dataIndex].owner}}},scales:{y:{title:{display:true,text:"Total units (kWh)"},beginAtZero:true},x:{title:{display:true,text:"House ID"}}}}});
+}
+
+/* ---------- ui ---------- */
+function fillSelects(){
+  const h=$("house").value,th=$("trendHouse").value;
+  $("house").innerHTML=ids().map(k=>`<option>${k}</option>`).join("");
+  $("trendHouse").innerHTML=`<option value="ALL">All houses (average)</option>`+ids().map(k=>`<option value="${k}">${k} - ${D[k].owner}</option>`).join("");
+  if(h)$("house").value=h;if(th)$("trendHouse").value=th;
+}
+function refresh(){
+  $("insList").innerHTML=insights().map(t=>`<li>${t}</li>`).join("");
+  drawLine();drawBar();
+}
+function say(t,ok){$("msg").textContent=t;$("msg").className=ok?"ok":"err";}
+function addReading(){
+  const id=$("aId").value.trim().toUpperCase(),owner=$("aOwner").value.trim(),m=M.indexOf($("aMonth").value),u=$("aUnits").value;
+  if(!/^H\d+$/.test(id))return say("House ID must look like H05.");
+  if(!owner)return say("Enter the owner name.");
+  if(u===""||!Number.isInteger(+u))return say("Units must be a whole number.");
+  if(+u<0)return say("Units cannot be negative.");
+  if(D[id]&&D[id].u[m]!=null)return say(`Reading for ${id} / ${M[m]} already exists.`);
+  if(!D[id])D[id]={owner:owner[0].toUpperCase()+owner.slice(1).toLowerCase(),u:Array(12).fill(null)};
+  D[id].u[m]=+u;
+  fillSelects();$("house").value=id;$("month").value=M[m];loadReading();refresh();
+  say(`Saved ${id} / ${M[m]}: ${u} units. The bill above has been updated.`,true);
+}
+function downloadCsv(){
+  const out=["house_id,owner,month,units"];
+  ids().forEach(k=>D[k].u.forEach((u,i)=>{if(u!=null)out.push(`${k},${D[k].owner},${M[i]},${u}`);}));
+  const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([out.join("\n")+"\n"],{type:"text/csv"}));a.download="readings.csv";a.click();
+}
+$("month").innerHTML=$("aMonth").innerHTML=M.map(m=>`<option>${m}</option>`).join("");
+fillSelects();
+$("month").value="Jun";
+$("house").onchange=$("month").onchange=loadReading;
+$("units").oninput=()=>{$("slider").value=Math.min($("units").value||0,700);$("who").textContent="Custom value, not tied to a stored reading.";renderBill();};
+$("slider").oninput=()=>{$("units").value=$("slider").value;$("who").textContent="Custom value, not tied to a stored reading.";renderBill();};
+$("trendHouse").onchange=drawLine;$("topN").onchange=drawBar;
+$("addBtn").onclick=addReading;$("csvBtn").onclick=downloadCsv;
+loadReading();refresh();
+</script>
+</body>
+</html>
