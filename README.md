@@ -177,7 +177,7 @@ print(calculate_bill(0)["total"])     # 50.0   (fixed charge only)
 | Visualization and insights | Line chart and bar chart with titles and labels; 5 automatic insights |
 | Report and demo | Project report (`Project_Report.pdf`) and the live website |
 
----
+
 
 ## Technologies
 
